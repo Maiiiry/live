@@ -1,0 +1,10 @@
+#!/usr/bin/env php
+<?php
+
+// The same as vendor/bin/io-check: the project's live components and views checked without running the
+// app. vendor/bin/live-check [directory]
+
+$root = realpath($argv[1] ?? getcwd()) ?: getcwd();
+require "$root/vendor/autoload.php";
+
+exit(Io\View\Check::main($argv, 'live-check'));

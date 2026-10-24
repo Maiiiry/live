@@ -1,0 +1,30 @@
+<?php
+
+namespace Demo;
+
+use Io\Live\Component;
+
+/** Child counters with their own state: adding or removing one leaves the others' counts alone. */
+#[Component]
+final class CounterList
+{
+    /** @var list<int> */
+    private array $counters = [1, 2];
+
+    private int $next = 3;
+
+    public function add(): void
+    {
+        $this->counters[] = $this->next++;
+    }
+
+    public function removeFirst(): void
+    {
+        array_shift($this->counters);
+    }
+
+    public function reverse(): void
+    {
+        $this->counters = array_reverse($this->counters);
+    }
+}

@@ -1,0 +1,131 @@
+<!doctype html><meta charset="utf-8"><title>live.js check</title>
+<!-- Checks live.js against a fake server: php -S localhost:8098 in the repo, open /tests/client.html, every line must say PASS -->
+<body>
+<app-a data-live data-inputs="{}"><input id="f"><button id="btn" data-on-click="go">go</button><input id="typed" data-on-input="search"></app-a>
+<app-b data-live data-inputs="{}"><form><input id="fa" name="a"><input id="fb" name="b"></form><input id="bound" value="ab"><textarea id="ta">x</textarea><select id="sel"><option>1</option><option selected>2</option></select></app-b>
+<app-c data-live data-inputs="{}"><form id="up" data-on-submit="save"><input name="title" value="Trip"><input id="ph" type="file" name="photos[]" multiple><input type="file" name="empty"></form><input id="one" type="file" data-on-change="pick"><div id="ignored" data-live-ignore><span>server</span></div><form id="mix" data-on-submit="mix"><input name="tags" value="a"><input name="tags[]" value="b"></form><form id="pub" data-on-submit="post"><input name="title" value="Note"><button name="as" value="draft">Draft</button><button id="publish" name="as" value="public">Publish</button></form></app-c>
+<pre id="out"></pre>
+<script>
+const sent = []; let ws;
+window.WebSocket = class { constructor() { ws = this; } send(m) { sent.push(JSON.parse(m)); } };
+window.Io = { directive(attr, type, fn) { document.addEventListener(type, (e) => { const el = e.target.closest(`[${attr}]`); if (el) fn(el, e); }); } };
+</script>
+<script src="../assets/live.js"></script>
+<script>
+const results = [];
+const check = (name, ok) => results.push(`${ok ? 'PASS' : 'FAIL'} ${name}`);
+const server = (m) => ws.onmessage({ data: JSON.stringify(m) });
+// Calls leave through a promise chain: let it run before looking at what was sent
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const $ = (id) => document.getElementById(id);
+(async () => {
+  ws.onopen();
+  // Offline click, then a new circuit: the click is dropped
+  $('btn').click();
+  await tick();
+  server({ t: 'circuit', token: 't1', resumed: false });
+  await tick();
+  check('queue dropped on new circuit', sent.filter((m) => m.t === 'call').length === 0 && sent.filter((m) => m.t === 'mount').length === 3);
+  // Resumed circuit keeps the queue
+  sent.length = 0; ws.onclose(); $('btn').click(); await tick(); ws.onopen();
+  server({ t: 'circuit', token: 't1', resumed: true });
+  await tick();
+  check('queue kept on resume', sent.some((m) => m.t === 'call' && m.m === 'go'));
+  // Typing then a quick click: input goes first
+  sent.length = 0; $('typed').value = 'Mü'; $('typed').dispatchEvent(new Event('input', { bubbles: true })); $('btn').click();
+  await tick();
+  check('typing flushed before click', sent.map((m) => m.m).join() === 'search,go' && sent[0].a[0] === 'Mü');
+  await new Promise((r) => setTimeout(r, 200));
+  check('no second input call', sent.length === 2);
+  // A <p> shows up in front of the focused input
+  const f = $('f'); f.focus(); f.value = 'abc';
+  server({ id: 'c0', html: '<p>err</p><input id="f"><button id="btn" data-on-click="go">go</button><input id="typed" data-on-input="search">' });
+  check('focused input survives a new sibling', $('f') === f && document.activeElement === f && f.value === 'abc');
+  // Unbound form fields keep their values
+  const b = '<form><input id="fa" name="a"><input id="fb" name="b"></form>';
+  $('fa').value = 'x'; $('fb').focus();
+  server({ id: 'c1', html: b + '<input id="bound" value="ab"><textarea id="ta">x</textarea><select id="sel"><option>1</option><option selected>2</option></select>' });
+  check('unbound field kept', $('fa').value === 'x');
+  // Focused bound field: a lagging render loses nothing, a render of what it has applies
+  const bound = $('bound'); bound.focus(); bound.value = 'abcd';
+  server({ id: 'c1', html: b + '<input id="bound" value="abc"><textarea id="ta">x</textarea><select id="sel"><option>1</option><option selected>2</option></select>' });
+  check('lagging render keeps typing', bound.value === 'abcd');
+  server({ id: 'c1', html: b + '<input id="bound" value="abcd"><textarea id="ta">x</textarea><select id="sel"><option>1</option><option selected>2</option></select>' });
+  server({ id: 'c1', html: b + '<input id="bound" value=""><textarea id="ta">x</textarea><select id="sel"><option>1</option><option selected>2</option></select>' });
+  check('server clears focused field it knew', bound.value === '');
+  // textarea and select take a changed server value after user edits
+  $('ta').value = 'hi'; $('sel').value = '1'; $('fb').focus();
+  server({ id: 'c1', html: b + '<input id="bound" value=""><textarea id="ta"></textarea><select id="sel"><option selected>1</option><option>2</option></select>' });
+  server({ id: 'c1', html: b + '<input id="bound" value=""><textarea id="ta"></textarea><select id="sel"><option>1</option><option selected>2</option></select>' });
+  check('textarea takes server value', $('ta').value === '');
+  check('select takes server value', $('sel').value === '2');
+  // Files go along base64-encoded: a form's list field, and a file input's change
+  sent.length = 0;
+  const photos = new DataTransfer();
+  photos.items.add(new File(['hi'], 'a.txt', { type: 'text/plain' }));
+  photos.items.add(new File(['yo'], 'b.txt'));
+  $('ph').files = photos.files;
+  $('up').requestSubmit();
+  await new Promise((r) => setTimeout(r, 100));
+  const save = sent.find((m) => m.m === 'save')?.a[0];
+  check('form sends its files', save?.title === 'Trip' && save.photos.length === 2 && save.photos[0].$file.name === 'a.txt' && save.photos[0].$file.data === btoa('hi') && !('empty' in save));
+  const one = new DataTransfer();
+  one.items.add(new File(['x'], 'one.png', { type: 'image/png' }));
+  $('one').files = one.files;
+  $('one').dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 100));
+  const pick = sent.find((m) => m.m === 'pick')?.a[0];
+  check('file input sends its file', pick?.$file.name === 'one.png' && pick.$file.type === 'image/png' && pick.$file.data === btoa('x'));
+  // A click right after picking a file waits for the file: the order stays as it happened
+  sent.length = 0;
+  $('one').dispatchEvent(new Event('change', { bubbles: true }));
+  $('btn').click();
+  await new Promise((r) => setTimeout(r, 100));
+  check('file change stays ahead of a quick click', sent.map((m) => m.m).join() === 'pick,go');
+  // A plain field and a list field of the same name end up in the list
+  sent.length = 0;
+  $('mix').requestSubmit();
+  await new Promise((r) => setTimeout(r, 100));
+  check('name and name[] make one list', JSON.stringify(sent.find((m) => m.m === 'mix')?.a[0]) === '{"tags":["a","b"]}');
+  // The button that submitted the form goes along with its name and value
+  sent.length = 0;
+  $('pub').requestSubmit($('publish'));
+  await new Promise((r) => setTimeout(r, 100));
+  check('the pressed button is in the form', JSON.stringify(sent.find((m) => m.m === 'post')?.a[0]) === '{"title":"Note","as":"public"}');
+  // An ignored element stays as the browser changed it, whatever the server renders
+  $('ignored').firstElementChild.textContent = 'typed in the browser';
+  server({ id: 'c2', html: '<form id="up" data-on-submit="save"><input name="title" value="Trip"><input id="ph" type="file" name="photos[]" multiple><input type="file" name="empty"></form><input id="one" type="file" data-on-change="pick"><div id="ignored" data-live-ignore><span>server again</span></div><form id="mix" data-on-submit="mix"><input name="tags" value="a"><input name="tags[]" value="b"></form><form id="pub" data-on-submit="post"><input name="title" value="Note"><button name="as" value="draft">Draft</button><button id="publish" name="as" value="public">Publish</button></form>' });
+  check('data-live-ignore keeps the browser\'s content', $('ignored').textContent === 'typed in the browser');
+  // Errors: true only marks the component, details (dev) open the overlay, a repeat counts, a render closes it
+  const overlay = () => document.querySelector('live-errors')?.shadowRoot;
+  server({ id: 'c1', error: true });
+  check('error true opens no overlay', !overlay() && document.querySelector('[data-live-id="c1"]').hasAttribute('data-live-error'));
+  const error = { class: 'TypeError', message: 'not an array', file: '/app/src/A.Template.php', line: 2, selector: 'app-b', cause: 'call "go"', template: ['/app/src/A.Template.php', 2], snippet: [[1, '<p>'], [2, '{{ $x }}']], trace: [{ call: 'A->go()', file: '/app/src/A.php', line: 9, vendor: false }] };
+  server({ t: 'circuit', token: 't1', resumed: true, boot: 'b1', editor: 'vscodium://file/{file}:{line}' });
+  server({ id: 'c1', error });
+  server({ id: 'c1', error });
+  check('details open the overlay', overlay()?.querySelectorAll('section').length === 1 && overlay().querySelector('header').textContent.includes('×2'));
+  check('editor link', overlay().querySelector('a').getAttribute('href') === 'vscodium://file//app/src/A.Template.php:2');
+  server({ t: 'problem', key: '/app/src/B.Template.php', error: { ...error, message: '@if has no @endif' } });
+  check('a template problem stacks', overlay().querySelectorAll('section').length === 2);
+  server({ id: 'c1', html: $('fa').closest('[data-live]').innerHTML });
+  server({ t: 'problem', key: '/app/src/B.Template.php', error: null });
+  check('a render and a fixed template close them', overlay().querySelectorAll('section').length === 0);
+  // A child's failed call: its parent's next HTML closes the entry, children have no HTML of their own
+  document.querySelector('[data-live-id="c1"]').insertAdjacentHTML('beforeend', '<i data-live data-live-id="c1.0"></i>');
+  server({ id: 'c1.0', error });
+  check('a child error opens the overlay', overlay().querySelectorAll('section').length === 1);
+  server({ id: 'c1', html: $('fa').closest('[data-live]').innerHTML });
+  check('a parent render closes a child error', overlay().querySelectorAll('section').length === 0);
+  // In dev the console can ask the server what a component holds, and a trace answers every action
+  sent.length = 0;
+  window.live.inspect('c1');
+  check('live.inspect asks the server', sent.length === 1 && sent[0].t === 'inspect' && sent[0].id === 'c1');
+  server({ t: 'trace', cause: 'call "go"', ms: 1.5, renders: [['c0', 'app-a', 1.2, 300]], warnings: [] });
+  check('a trace changes nothing on the page', overlay().querySelectorAll('section').length === 0);
+  // The server sends the browser elsewhere
+  server({ t: 'navigate', url: '#navigated' });
+  check('navigate loads the url', location.hash === '#navigated');
+  $('out').textContent = results.join('\n');
+})();
+</script>

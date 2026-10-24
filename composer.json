@@ -1,0 +1,46 @@
+{
+    "name": "io/live",
+    "description": "Live components for Io under Tenma: server-side PHP components, events and renders over one WebSocket, services called directly.",
+    "type": "library",
+    "license": ["MIT", "Apache-2.0"],
+    "require": {
+        "php": ">=8.5",
+        "io/framework": "^0.1.0"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.2",
+        "phpunit/phpunit": "^13.3",
+        "tenma/stubs": "^0.2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Io\\Live\\": "src/"
+        }
+    },
+    "bin": [
+        "bin/live-check"
+    ],
+    "autoload-dev": {
+        "psr-4": {
+            "Io\\Live\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "io": {
+            "checks": "Io\\Live\\TemplateChecks"
+        },
+        "tenma": {
+            "lsp": "Io\\Live\\Editor"
+        },
+        "phpstan": {
+            "includes": [
+                "extension.neon"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit --testdox",
+        "stan": "phpstan analyse",
+        "reference": "tenma docs src/*.php src/Testing --out docs/reference"
+    }
+}

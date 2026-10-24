@@ -1,0 +1,29 @@
+---
+title: Guides
+description: One part of Live per page, with examples that run as they are.
+order: 10
+---
+
+Each guide covers one part of Live, with complete components: a class, its template and, where it helps, the PHPUnit test that drives it. The examples come from [Sonnenkorn](https://github.com/io-framework/bakery), the made-up bakery that is the example app of Io and Live: its shop, cart, checkout, order board and stock are live components in `src/Components`, with their tests in `tests/Components`. Where the bakery has no case for a part of Live, the guide shows a small component of the same shop; those were run with [`Testing\Tab`](testing.md) against the package. The [reference](../reference/index.md) lists every public class and method.
+
+Building components:
+
+- [Components](components.md): `#[Component]`, selector and template, state, inputs, lifecycle, components of a plugin
+- [Templates](templates.md): Io's template syntax in a component, `{{ }}`, class names, `Html` for trusted markup
+- [Events and actions](events.md): `data-on-*`, `data-arg`, bound calls like `remove($line->product)`, what the browser can call
+- [Child components and inputs](children.md): placing components in templates, keys, closures as callbacks
+- [Forms and binding](forms.md): `data-on-submit`, fields that follow the server, validation
+- [Services](services.md): `#[Inject]`, `#[Scoped]` services per tab, what an app-wide service may inject
+- [The connection and the user](connection.md): `Connection`, the JWT, checking the user in every component
+- [Navigation](navigation.md): sending the browser to another page after an action
+- [Uploads](uploads.md): file inputs and forms with files
+- [Timers, broadcasts and server push](push.md): `#[Every]`, `Broadcast`, several workers
+
+Running and checking:
+
+- [Reconnects and parked circuits](reconnect.md): what happens when the connection drops
+- [Development tools](development.md): hot reload, the error overlay, editor support, tracing and inspecting
+- [Static analysis](static-analysis.md): `vendor/bin/io-check` (or `live-check`) and the PHPStan extension
+- [Testing](testing.md): `Testing\Tab` and `Testing\Mounted`
+- [Security model](security.md): what the browser can and cannot do
+- [Deployment and limits](deployment.md): workers, proxies, limits of the proof of concept

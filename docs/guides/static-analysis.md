@@ -1,0 +1,101 @@
+---
+title: Static analysis
+description: Check components and templates without running the app with vendor/bin/io-check, and keep PHPStan from flagging members only templates use.
+order: 130
+---
+
+Templates are PHP, but PHPStan does not read them on its own, and mistakes in them (a misspelt property, a method with the wrong arguments, a `data-on-click` that names nothing) would only show when a page renders or a button is clicked. Live closes that gap twice: Io's check, `vendor/bin/io-check`, analyses every template along with the views, and a PHPStan extension tells PHPStan which members the templates use.
+
+## io-check
+
+```bash
+composer require --dev phpstan/phpstan
+vendor/bin/io-check
+```
+
+Live takes part in it through [`TemplateChecks`](../reference/Io/Live/TemplateChecks.md), which its `composer.json` names under `extra.io.checks`, so the check covers the views ([Io's views](https://github.com/io-framework/framework/blob/main/docs/guides/views.md#the-check)) and the components in one run. `vendor/bin/live-check` is another name for it, with the same output and exit codes.
+
+It finds every class with `#[Component]` below the project's `autoload` and `autoload-dev` directories (PSR-4 and classmap), without running the app, and reports:
+
+1. what the app checks in development ([Development tools](development.md#checks)): actions the component lacks, attributes that are no input of the child, tags that stay as they are, PHP that does not parse, directives that do not close, timers that cannot run, inputs that cannot be set;
+2. PHPStan's findings in every template, read as the PHP it becomes with `$this` as its component: an undefined property or method, wrong argument types, a typo in the member of a loop variable whose type the property's `@var` names.
+
+Each problem is reported at the template's own line:
+
+Run on the bakery with two typos in `OrderBoard.Template.php`, one at a time:
+
+```
+$ vendor/bin/io-check
+src/Components/OrderBoard.Template.php:15: error: Access to an undefined property Bakery\Models\Order::$custmerName.
+io-check: 1 errors, 0 warnings
+```
+
+```
+$ vendor/bin/io-check
+src/Components/OrderBoard.Template.php:23: error: data-on-click="advanse($order)": OrderBoard has no method advanse(). Did you mean advance()?
+io-check: 1 errors, 0 warnings
+```
+
+A template with an error of the first kind is left out of the PHPStan run; it would only fail to parse.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | no errors (warnings may have been printed) |
+| 1 | at least one error |
+| 2 | the check could not run, for example without PHPStan |
+
+So the command fails a CI step as it is. An optional argument names the project's directory: `vendor/bin/io-check path/to/project`.
+
+### Configuration
+
+- PHPStan runs with the project's `phpstan.neon` (or `phpstan.neon.dist`): its level, its extensions, its bootstrap files. Without one, it runs at level 6.
+- The generated files go to the system's temp directory (`io-check-<hash of the project path>`), one per component and view, never into the project.
+- Types in templates come from the component's properties and methods. A method's `@return list<Order>` or a property's `@var list<Order>` lets PHPStan check what a loop over it does with each `$order`; a `@model` does the same for a view, as in the bakery's `views/Shop/Catalog.php` (`@model (list<Bakery\Models\Product>)`).
+
+### In the editor while saving
+
+PHPStan is too slow to run on every keystroke, but a Tenma build hook can run it whenever a file below `src/` is saved and send the findings to the editor. In the project's `tenma.dev.php`:
+
+```php
+<?php
+
+return [
+    new Development\Hook(
+        name: 'io-check',
+        inputs: ['src/**', 'views/**'],
+        run: fn () => Io\View\Check::publish(__DIR__),
+    ),
+];
+```
+
+The bakery's `tenma.dev.php` has one hook already, for its stylesheet; this one goes next to it.
+
+`Io\View\Check::publish()` runs PHPStan on the templates and views and hands the findings to `Development\Problems::report()`, which `tenma lsp` shows at their line. The checks of the first kind already reach the editor while typing, through the language server ([Development tools](development.md#in-the-editor)).
+
+## The PHPStan extension
+
+To PHPStan, a private property that only a component's template reads is never read, and a private method that only the template or a timer calls is unused. The package's PHPStan extension makes these count as used:
+
+- every private property and method of a class with `#[Component]`,
+- every method with `#[Every]`.
+
+With `phpstan/extension-installer` the extension is included on its own. Without it, add it to the project's `phpstan.neon`:
+
+```neon
+includes:
+    - vendor/io/live/extension.neon
+```
+
+## In CI
+
+The bakery's checks, from its README:
+
+```bash
+vendor/bin/phpunit
+vendor/bin/phpstan
+vendor/bin/io-check
+```
+
+PHPStan checks the classes, `io-check` the templates and views, and the PHPUnit tests with [`Testing\Tab`](testing.md) prove that the templates wire the right methods to the right elements.
+
+See also: [`TemplateChecks`](../reference/Io/Live/TemplateChecks.md), [`Check`](../reference/Io/Live/Check.md), [Development tools](development.md).

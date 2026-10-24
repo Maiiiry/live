@@ -1,0 +1,11 @@
+includes:
+    - vendor/tenma/stubs/extension.neon
+
+parameters:
+    level: 10
+    paths:
+        - src
+    ignoreErrors:
+        # #[Inject] properties are written by Io's PropertyInjector
+        - identifier: property.onlyRead
+          path: src/LiveController.php
